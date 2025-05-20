@@ -96,6 +96,7 @@ void setup() {
   Serial.begin(115200);
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  client.setBufferSize(1024);
   startMillis = millis();
 
   // Initialize BME280
