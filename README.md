@@ -18,7 +18,7 @@ Made for ESP32 Devkit V1 boards. Might work on other boards but I cannot guarant
 
 ### Connection diagram
 
-![Image of the connection diagram](https://github.com/VaeluxV/ESP32-Permanent-Sensor/blob/aa468800a66faac23cdfd0f3e56d3d59b24da911/img/Permanent%20Sensor%20Diagram.jpg)
+![Image of the connection diagram](https://github.com/VaeluxV/ESP32-Environment-Sensor/blob/ea3dedadc0790e0851738116896dd30de8186c68/img/Permanent%20Sensor%20Diagram.jpg)
 
 ## Software
 
