@@ -1,4 +1,4 @@
-# ESP32-Permanent-Sensor
+# ESP32-Environment-Sensor
 
 ## Information
  
