@@ -110,7 +110,12 @@ void setup() {
 }
 
 void loop() {
-  if (!client.connected()) {
+  if (WiFi.status() != WL_CONNECTED) { // If Wi-Fi is ot connected, try to reconnect
+  Serial.println("Wi-Fi disconnected, attempting to reconnect...");
+  setup_wifi();
+  }
+
+  if (!client.connected()) { // If MQTT client is not connected, try to reconnect
     reconnect_mqtt();
   }
   client.loop();
