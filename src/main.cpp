@@ -3,13 +3,14 @@
 #include <PubSubClient.h>
 #include <Adafruit_BME280.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
 
 #include <secrets.h> // Include passwords, SSID and other info from secrets.h
 
 // === Device Information ===
 const char* sensor_id = "env-001";
 const char* device_type = "Environmental-tracker";
-const char* firmware_version = "v2025.05.08a";
+const char* firmware_version = "v2025.05.21c";
 const char* connection_type = "Wi-Fi";
 
 WiFiClient espClient;
@@ -58,8 +59,8 @@ void publish_sensor_data() {
   float temperature = NAN, humidity = NAN;
 
   if (bme_status) {
-    temperature = bme.readTemperature();
-    humidity = bme.readHumidity();
+    temperature = bme.readTemperature() - 3.5; // Adjusted for calibration
+    humidity = bme.readHumidity() / 100.0; // Convert to percentage
   }
 
   int light_level = analogRead(LDR_PIN);
@@ -75,12 +76,9 @@ void publish_sensor_data() {
   doc["sensor_id"] = sensor_id;
   doc["device_type"] = device_type;
   doc["signal_strength"] = WiFi.RSSI();
-  doc["estimated_altitude"] = 0; // placeholder
-  doc["noise_level"] = 0; // placeholder
   doc["firmware_version"] = firmware_version;
   doc["connection_type"] = connection_type;
   doc["uptime_seconds"] = (millis() - startMillis) / 1000;
-  doc["battery_level"] = 100; // placeholder
   doc["critical_battery"] = false; // placeholder
   doc["status"] = "active_normal"; // placeholder until made dynamic
   doc["error_code"] = 0;
@@ -98,6 +96,11 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   client.setBufferSize(1024);
   startMillis = millis();
+
+  // Explicitly set I2C pins
+  // (I physically swapped pins 21 and 22 on my setup by accident, this is a fix for that without changing the wiring.)
+  // Swap these 2 pins around if you use the default I2C pins.
+  Wire.begin(22, 21); // SDA, SCL
 
   // Initialize BME280
   bme_status = bme.begin(0x76); // Try 0x76 or 0x77 based on your module
