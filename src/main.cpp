@@ -28,7 +28,27 @@ unsigned long lastPublish = 0;
 unsigned long startMillis;
 const int publish_interval = 5000; // 5 seconds
 
-// === Setup Wi-Fi connection ===
+// === Connection state ===
+int wifi_retry_delay = 10000; // Start at 10s
+unsigned long last_wifi_attempt = 0;
+
+int mqtt_retry_count = 0;
+const int mqtt_retry_limit = 5;
+
+unsigned long last_reconnect_attempt = 0;
+const unsigned long reconnect_cooldown = 30000; // 30s cooldown before retrying full reconnect
+
+bool full_reconnect_required = false;
+
+// === Disconnect both Wi-Fi and MQTT safely ===
+void safe_disconnect_all() {
+  Serial.println("Disconnecting Wi-Fi and MQTT...");
+  client.disconnect();
+  WiFi.disconnect(true);
+  delay(100);
+}
+
+// === Setup Wi-Fi connection (blocking) ===
 void setup_wifi() {
   Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
@@ -39,22 +59,60 @@ void setup_wifi() {
   Serial.println("\nWi-Fi connected. IP: " + WiFi.localIP().toString());
 }
 
-// === MQTT (re-)connection function ===
-void reconnect_mqtt() {
-  while (!client.connected()) {
+// === Check Wi-Fi and apply backoff retry ===
+void check_wifi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    unsigned long now = millis();
+    if (now - last_wifi_attempt >= wifi_retry_delay) {
+      Serial.println("Wi-Fi disconnected, attempting to reconnect...");
+      WiFi.begin(ssid, password);
+      unsigned long start = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+        delay(500);
+        Serial.print(".");
+      }
+      Serial.println();
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Wi-Fi reconnected. IP: " + WiFi.localIP().toString());
+        wifi_retry_delay = 10000; // reset on success
+      } else {
+        wifi_retry_delay = min(wifi_retry_delay + 5000, 30000); // backoff up to 30s
+        Serial.println("Wi-Fi reconnection failed. Increasing delay.");
+      }
+      last_wifi_attempt = now;
+    }
+  }
+}
+
+// === Check MQTT connection and apply retry limit ===
+void check_mqtt() {
+  if (!client.connected()) {
+    if (mqtt_retry_count >= mqtt_retry_limit) {
+      Serial.println("MQTT failed too many times. Will reconnect everything...");
+      full_reconnect_required = true;
+      mqtt_retry_count = 0;
+      last_reconnect_attempt = millis();
+      return;
+    }
+
     Serial.print("Connecting to MQTT...");
     if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
       Serial.println("connected");
+      mqtt_retry_count = 0;
     } else {
+      mqtt_retry_count++;
       Serial.print(" failed, rc=");
       Serial.print(client.state());
-      Serial.println(" retrying in 5s");
+      Serial.print(" retry ");
+      Serial.print(mqtt_retry_count);
+      Serial.print("/");
+      Serial.println(mqtt_retry_limit);
       delay(5000);
     }
   }
 }
 
-// === Read sensors and publish data ===
+// === Read sensors and publish JSON data ===
 void publish_sensor_data() {
   float temperature = NAN, humidity = NAN;
 
@@ -79,8 +137,8 @@ void publish_sensor_data() {
   doc["firmware_version"] = firmware_version;
   doc["connection_type"] = connection_type;
   doc["uptime_seconds"] = (millis() - startMillis) / 1000;
-  doc["critical_battery"] = false; // placeholder
-  doc["status"] = "active_normal"; // placeholder until made dynamic
+  doc["critical_battery"] = false;
+  doc["status"] = "active_normal";
   doc["error_code"] = 0;
 
   char buffer[512];
@@ -90,6 +148,7 @@ void publish_sensor_data() {
   Serial.println(buffer);
 }
 
+// === Setup ===
 void setup() {
   Serial.begin(115200);
   setup_wifi();
@@ -97,32 +156,37 @@ void setup() {
   client.setBufferSize(1024);
   startMillis = millis();
 
-  // Explicitly set I2C pins
-  // (I physically swapped pins 21 and 22 on my setup by accident, this is a fix for that without changing the wiring.)
-  // Swap these 2 pins around if you use the default I2C pins.
+  // Fix swapped I2C pins (use default if needed)
   Wire.begin(22, 21); // SDA, SCL
 
-  // Initialize BME280
-  bme_status = bme.begin(0x76); // Try 0x76 or 0x77 based on your module
+  bme_status = bme.begin(0x76);
   if (!bme_status) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
   }
 }
 
+// === Main loop ===
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) { // If Wi-Fi is ot connected, try to reconnect
-  Serial.println("Wi-Fi disconnected, attempting to reconnect...");
-  setup_wifi();
+  if (full_reconnect_required) {
+    if (millis() - last_reconnect_attempt >= reconnect_cooldown) {
+      safe_disconnect_all();
+      setup_wifi();
+      client.setServer(mqtt_server, mqtt_port);
+      full_reconnect_required = false;
+    } else {
+      return; // Wait during cooldown
+    }
   }
 
-  if (!client.connected()) { // If MQTT client is not connected, try to reconnect
-    reconnect_mqtt();
-  }
-  client.loop();
+  check_wifi();
 
-  // Publish every 5 seconds
-  if (millis() - lastPublish > publish_interval) {
-    lastPublish = millis();
-    publish_sensor_data();
+  if (WiFi.status() == WL_CONNECTED) {
+    check_mqtt();
+    client.loop();
+
+    if (millis() - lastPublish > publish_interval) {
+      lastPublish = millis();
+      publish_sensor_data();
+    }
   }
 }
