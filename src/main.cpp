@@ -10,7 +10,7 @@
 // === Device Information ===
 const char* sensor_id = "env-001";
 const char* device_type = "Environmental-tracker";
-const char* firmware_version = "v2025.05.28b";
+const char* firmware_version = "v2025.06.05a";
 const char* connection_type = "Wi-Fi";
 
 WiFiClient espClient;
